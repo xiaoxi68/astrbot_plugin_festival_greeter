@@ -1,0 +1,76 @@
+{
+  "timezone": {
+    "type": "string",
+    "description": "用于计算节日触发时间的时区，使用 IANA 标准格式",
+    "default": "Asia/Shanghai"
+  },
+  "trigger_time": {
+    "type": "string",
+    "description": "每日检查节日并发送祝福的触发时间，24 小时制 HH:MM",
+    "default": "08:00"
+  },
+  "group_filter_mode": {
+    "type": "string",
+    "description": "群名单模式：disabled 表示不启用名单控制，whitelist 仅允许名单内群，blacklist 排除名单内群",
+    "default": "disabled",
+    "options": [
+      "disabled",
+      "whitelist",
+      "blacklist"
+    ]
+  },
+  "group_filter_list": {
+    "type": "list",
+    "description": "群黑/白名单，依据 group_filter_mode 生效",
+    "items": {
+      "type": "string"
+    }
+  },
+  "llm_provider_id": {
+    "type": "string",
+    "description": "可选，指定用于生成祝福的 LLM Provider ID；留空则使用会话默认模型"
+  },
+  "llm_prompt_style": {
+    "type": "string",
+    "description": "祝福语气风格，可按需扩展",
+    "default": "warm",
+    "options": [
+      "warm",
+      "formal",
+      "cheerful"
+    ]
+  },
+  "custom_holidays": {
+    "type": "list",
+    "description": "自定义节日列表，按两行一组填写：第一行为日期（MMDD），第二行为节日名称",
+    "items": {
+      "type": "string"
+    }
+  },
+  "fallback_messages": {
+    "type": "list",
+    "description": "当 LLM 调用失败时可选的兜底祝福语模板",
+    "items": {
+      "type": "string"
+    }
+  },
+  "max_generation_retries": {
+    "type": "int",
+    "description": "调用 LLM 失败后的最大重试次数",
+    "default": 1
+  },
+  "allow_manual_trigger": {
+    "type": "bool",
+    "description": "是否允许通过指令手动触发节日祝福发送",
+    "default": true
+  },
+  "holiday_repeat_mode": {
+    "type": "string",
+    "description": "节日期间的推送策略：first-day 仅节日首日推送，every-day 表示节日持续期间每日推送",
+    "default": "first-day",
+    "options": [
+      "first-day",
+      "every-day"
+    ]
+  }
+}

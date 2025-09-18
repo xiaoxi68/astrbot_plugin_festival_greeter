@@ -1,0 +1,5 @@
+name: festival-greeter
+desc: 在节日期间为群聊推送LLM祝福消息
+version: v0.1.0
+author: 薄暝
+repo: https://github.com/xiaox/astrbot-festival-greeter
