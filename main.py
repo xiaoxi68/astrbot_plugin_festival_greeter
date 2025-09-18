@@ -20,7 +20,7 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_TRIGGER = time(hour=8, minute=0)
 DEFAULT_PLATFORM = "aiocqhttp"
 DEFAULT_MESSAGE_TYPE = "group"
-STATE_FILE = Path("data") / "festival_greeter" / "deliveries.json"
+DATA_SUBDIR = "festival_greeter"
 PRUNE_INTERVAL = timedelta(days=7)
 RETENTION_WINDOW = timedelta(days=400)
 
@@ -34,7 +34,7 @@ class FestivalGreetingPlugin(Star):
         self._scheduler_task: Optional[asyncio.Task] = None
         self._prune_task: Optional[asyncio.Task] = None
         self._load_settings()
-        self._state_store = DeliveryStateStore(STATE_FILE)
+        self._state_store = DeliveryStateStore(self._resolve_state_path())
         self._sync_delivery_targets()
 
     def _load_settings(self) -> None:
@@ -75,10 +75,9 @@ class FestivalGreetingPlugin(Star):
     def _sync_delivery_targets(self) -> None:
         if not hasattr(self, "_state_store") or self._state_store is None:
             return
-        try:
-            recorded_groups = self._state_store.list_groups()
-        except AttributeError:
-            recorded_groups = []
+        if not hasattr(self._state_store, "list_groups"):
+            return
+        recorded_groups = self._state_store.list_groups()
         for group_id in recorded_groups:
             session = self._normalize_session(group_id)
             if session and session not in self._delivery_targets:
@@ -233,7 +232,7 @@ class FestivalGreetingPlugin(Star):
             providers = self.context.get_all_providers()
             if providers:
                 return providers[0]
-        except Exception as exc:  # pragma: no cover
+        except (AttributeError, LookupError, RuntimeError) as exc:  # pragma: no cover
             logger.warning("获取 Provider 失败: %s", exc)
         return None
 
@@ -288,6 +287,28 @@ class FestivalGreetingPlugin(Star):
     def _extract_group_id(self, session: str) -> str:
         parts = session.split(":")
         return parts[-1] if parts else session
+
+    def _resolve_state_path(self) -> Path:
+        getters = []
+        direct_getter = getattr(self.context, "get_data_dir", None)
+        if callable(direct_getter):
+            getters.append(direct_getter)
+        tools = getattr(self.context, "tools", None)
+        tool_getter = getattr(tools, "get_data_dir", None) if tools else None
+        if callable(tool_getter):
+            getters.append(tool_getter)
+
+        for getter in getters:
+            try:
+                base = Path(getter())
+                base.mkdir(parents=True, exist_ok=True)
+                return base / "deliveries.json"
+            except (OSError, TypeError, ValueError) as exc:
+                logger.warning("获取数据目录失败，尝试下一个候选：%s", exc)
+
+        fallback_dir = Path("data") / DATA_SUBDIR
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir / "deliveries.json"
 
     def _cooldown_window_hours(self) -> int:
         if self._holiday_repeat_mode == "every-day":

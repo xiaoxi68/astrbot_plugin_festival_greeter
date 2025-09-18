@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-import logging
 import re
 from typing import Iterable, List, Mapping, Sequence
 
-
-logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 @dataclass(frozen=True)
@@ -201,7 +199,7 @@ class HolidayCalendar:
                             description=str(raw.get("description", "")),
                         )
                     )
-                except Exception as exc:
+                except (TypeError, ValueError, KeyError) as exc:
                     logger.warning("自定义节日配置无效: %s", exc)
             return HolidayCalendar(definitions)
 

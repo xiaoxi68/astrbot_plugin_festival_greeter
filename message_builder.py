@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable
+from typing import Any, Callable, Dict, Iterable
 
 from .holidays import HolidayOccurrence
 
@@ -40,60 +40,13 @@ def build_system_prompt(style: str) -> str:
 
 
 def extract_text_from_response(response: Any) -> str:
-    def finalize(value: str) -> str:
-        return _sanitize_generated_text(value.strip())
-
     if response is None:
         return ""
-    if isinstance(response, str):
-        return finalize(response)
-    if hasattr(response, "result_chain"):
-        text = _extract_from_message_chain(getattr(response, "result_chain", None))
-        if text:
-            return finalize(text)
-    if hasattr(response, "text") and isinstance(response.text, str):
-        value = response.text.strip()
-        if value:
-            return finalize(value)
-    if hasattr(response, "content") and isinstance(response.content, str):
-        value = response.content.strip()
-        if value:
-            return finalize(value)
-    if hasattr(response, "message") and isinstance(response.message, str):
-        value = response.message.strip()
-        if value:
-            return finalize(value)
-    if hasattr(response, "raw_completion"):
-        text = _extract_from_completion_payload(getattr(response, "raw_completion"))
-        if text:
-            return finalize(text)
-    if hasattr(response, "_completion_text"):
-        value = getattr(response, "_completion_text")
-        if isinstance(value, str) and value.strip():
-            return finalize(value)
-    if hasattr(response, "choices"):
-        choices = getattr(response, "choices")
-        text = _extract_from_choices(choices)
-        if text:
-            return finalize(text)
-    if isinstance(response, dict):
-        for key in ("text", "content", "message", "answer"):
-            value = response.get(key)
-            if isinstance(value, str) and value.strip():
-                return finalize(value)
-            if isinstance(value, list):
-                joined = "\n".join(map(str, value)).strip()
-                if joined:
-                    return finalize(joined)
-    if "choices" in response:
-        text = _extract_from_choices(response["choices"])
-        if text:
-            return finalize(text)
-    if "result_chain" in response:
-        text = _extract_from_message_chain(response.get("result_chain"))
-        if text:
-            return finalize(text)
-    return finalize(str(response))
+    for extractor in _EXTRACTION_PIPELINE:
+        result = extractor(response)
+        if result:
+            return _sanitize_generated_text(result)
+    return _sanitize_generated_text(str(response))
 
 
 def _extract_from_choices(choices: Any) -> str:
@@ -114,19 +67,15 @@ def _extract_from_message_chain(chain: Any) -> str:
         return ""
     if isinstance(chain, str):
         return chain.strip()
-    # AstrBot MessageChain 常见结构包含 chain 属性
-    try:
-        components = getattr(chain, "chain", None)
-        texts = []
-        if isinstance(components, Iterable):
-            for item in components:
-                text = getattr(item, "text", None)
-                if isinstance(text, str) and text.strip():
-                    texts.append(text.strip())
-        if texts:
-            return "".join(texts)
-    except Exception:
-        pass
+    components = getattr(chain, "chain", None)
+    texts = []
+    if isinstance(components, Iterable):
+        for item in components:
+            text = getattr(item, "text", None)
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+    if texts:
+        return "".join(texts)
     if hasattr(chain, "plain_text"):
         value = getattr(chain, "plain_text")
         if isinstance(value, str) and value.strip():
@@ -158,6 +107,69 @@ def _extract_from_completion_payload(payload: Any) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return ""
+
+
+def _extract_from_plain_string(response: Any) -> str:
+    return response.strip() if isinstance(response, str) else ""
+
+
+def _extract_from_result_chain_attr(response: Any) -> str:
+    chain = getattr(response, "result_chain", None)
+    return _extract_from_message_chain(chain)
+
+
+def _extract_from_simple_attrs(response: Any) -> str:
+    for attr in ("text", "content", "message", "_completion_text"):
+        value = getattr(response, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_from_choices_attr(response: Any) -> str:
+    choices = getattr(response, "choices", None)
+    if choices:
+        return _extract_from_choices(choices)
+    return ""
+
+
+def _extract_from_raw_completion(response: Any) -> str:
+    payload = getattr(response, "raw_completion", None)
+    if payload:
+        return _extract_from_completion_payload(payload)
+    return ""
+
+
+def _extract_from_mapping(response: Any) -> str:
+    if not isinstance(response, dict):
+        return ""
+    for key in ("text", "content", "message", "answer"):
+        value = response.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            joined = "\n".join(map(str, value)).strip()
+            if joined:
+                return joined
+    if "choices" in response:
+        text = _extract_from_choices(response.get("choices"))
+        if text:
+            return text
+    if "result_chain" in response:
+        text = _extract_from_message_chain(response.get("result_chain"))
+        if text:
+            return text
+    return ""
+
+
+_EXTRACTION_PIPELINE: tuple[Callable[[Any], str], ...] = (
+    _extract_from_plain_string,
+    _extract_from_result_chain_attr,
+    _extract_from_simple_attrs,
+    _extract_from_raw_completion,
+    _extract_from_choices_attr,
+    _extract_from_mapping,
+)
 
 
 THOUGHT_PREFIX_PATTERN = re.compile(r"^\s*(?:思考|分析|推理|思路|思绪|chain of thought|analysis|reasoning)[:：]", re.IGNORECASE)

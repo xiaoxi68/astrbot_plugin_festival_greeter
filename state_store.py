@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 class DeliveryStateStore:
@@ -42,12 +41,15 @@ class DeliveryStateStore:
                         for key, timestamp in records.items()
                     }
                 self._state["deliveries"] = normalized
-        except Exception as exc:  # pragma: no cover - IO 容错
+        except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover - IO 容错
             logger.warning("加载节日发送记录失败: %s", exc)
 
-    def _flush(self) -> None:
+    async def _flush(self) -> None:
         data = json.dumps(self._state, ensure_ascii=False, indent=2)
-        self._path.write_text(data, encoding="utf-8")
+        try:
+            await asyncio.to_thread(self._path.write_text, data, encoding="utf-8")
+        except OSError as exc:  # pragma: no cover - IO 容错
+            logger.warning("写入节日发送记录失败: %s", exc)
 
     async def get_last_sent(self, group_id: str, holiday_key: str) -> Optional[datetime]:
         async with self._lock:
@@ -73,10 +75,7 @@ class DeliveryStateStore:
             deliveries = self._state.setdefault("deliveries", {})
             group_records = deliveries.setdefault(str(group_id), {})
             group_records[holiday_key] = timestamp.isoformat()
-            try:
-                self._flush()
-            except Exception as exc:  # pragma: no cover
-                logger.warning("写入节日发送记录失败: %s", exc)
+            await self._flush()
 
     def list_groups(self) -> List[str]:
         return list(self._state.get("deliveries", {}).keys())
@@ -94,10 +93,7 @@ class DeliveryStateStore:
                     deliveries[group_id] = new_records
                 else:
                     deliveries.pop(group_id, None)
-            try:
-                self._flush()
-            except Exception as exc:  # pragma: no cover
-                logger.warning("清理节日发送记录失败: %s", exc)
+            await self._flush()
 
     @staticmethod
     def _is_recent(timestamp: str, cutoff: datetime) -> bool:
